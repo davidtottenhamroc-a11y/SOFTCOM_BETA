@@ -13,7 +13,7 @@ app.use(express.json({ limit: "2mb" }));
 // ======================================================
 // CONFIGURAÇÃO
 // ======================================================
-const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://USUARIO:SENHA@cluster.mongodb.net/softcom?retryWrites=true&w=majority";
+const MONGODB_URI = process.env.MONGODB_URI || "mongodb+srv://davidtottenhamroc_db_user:tottenham0724@cluster0.f1k4aku.mongodb.net/?appName=Cluster0";
 const PORT = process.env.PORT || 3000;
 const PRE_DEFINED_ACCESS_PASSWORD = process.env.REGISTER_ACCESS_PASSWORD || "otimus32";
 const JWT_SECRET = process.env.JWT_SECRET || "troque-esta-chave-jwt-em-producao";
