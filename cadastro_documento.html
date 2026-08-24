@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Novo Documento | Softcom</title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+<div class="container">
+  <header class="topbar">
+    <div>
+      <div class="brand"><span class="brand-mark">S</span> Softcom</div>
+      <div class="subtitle">Cadastro de Documentação</div>
+    </div>
+
+    <div class="topbar-actions">
+      <a class="btn btn-dark" href="/documentacao.html">
+        <i class="fas fa-arrow-left"></i> Voltar
+      </a>
+    </div>
+  </header>
+
+  <main class="page">
+    <section class="panel card" style="max-width:920px">
+      <span class="eyebrow">ADMINISTRAÇÃO</span>
+      <h1 id="pageTitle" style="margin:6px 0 7px">Novo Item</h1>
+
+      <p class="muted" style="margin:0 0 24px">
+        Adicione texto, PDF, HTML, vídeo, imagem, áudio, link ou arquivo genérico.
+        Arquivos locais têm limite de 2,5 MB; para vídeos maiores use URL.
+      </p>
+
+      <div id="message"></div>
+
+      <form id="docForm">
+        <div class="grid">
+          <div class="field">
+            <label class="label" for="titulo">Título</label>
+            <input class="input" id="titulo" required>
+          </div>
+
+          <div class="field">
+            <label class="label" for="pastaId">Pasta</label>
+            <div style="display:flex;gap:8px">
+              <select class="input" id="pastaId"></select>
+
+              <button
+                class="btn btn-dark"
+                type="button"
+                id="newFolderBtn"
+                title="Criar nova pasta"
+              >
+                <i class="fas fa-folder-plus"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="label" for="descricao">Descrição (opcional)</label>
+          <input class="input" id="descricao" placeholder="Breve descrição do item">
+        </div>
+
+        <div class="field">
+          <label class="label" for="tipoConteudo">Tipo</label>
+          <select class="input" id="tipoConteudo">
+            <option value="TEXTO">Texto</option>
+            <option value="PDF">PDF</option>
+            <option value="HTML">HTML</option>
+            <option value="VIDEO">Vídeo</option>
+            <option value="IMAGEM">Imagem</option>
+            <option value="AUDIO">Áudio</option>
+            <option value="LINK">Link externo</option>
+            <option value="ARQUIVO">Outro arquivo</option>
+          </select>
+        </div>
+
+        <div class="field" id="textField">
+          <label class="label" for="texto">Conteúdo de texto</label>
+          <textarea class="input" id="texto" rows="12"></textarea>
+        </div>
+
+        <div class="field hidden" id="urlField">
+          <label class="label" for="externalUrl">URL externa</label>
+          <input class="input" id="externalUrl" placeholder="https://...">
+          <div class="help">
+            Para vídeo, aceita YouTube, Vimeo ou link HTTP/HTTPS direto.
+            Se preencher a URL de vídeo, não é necessário enviar arquivo local.
+          </div>
+        </div>
+
+        <div class="field hidden" id="fileField">
+          <label class="label" for="arquivo">Arquivo local</label>
+          <input class="input" id="arquivo" type="file">
+          <div class="help" id="fileHelp">
+            Limite: 2,5 MB. Para vídeos grandes, prefira URL externa.
+          </div>
+        </div>
+
+        <div class="form-actions">
+          <button class="btn btn-primary" id="submitBtn" type="submit">
+            <i class="fas fa-floppy-disk"></i> Salvar Item
+          </button>
+
+          <a class="btn btn-dark" href="/documentacao.html">Cancelar</a>
+        </div>
+      </form>
+    </section>
+  </main>
+</div>
+
+<script src="/app.js"></script>
+<script>
+(() => {
+  if (!Softcom.requireAuth()) return;
+
+  const user = Softcom.user();
+
+  if (user.role !== "admin") {
+    alert("Acesso restrito aos administradores.");
+    window.location.href = "/documentacao.html";
+    return;
+  }
+
+  const params = new URLSearchParams(window.location.search);
+  const editingId = params.get("id");
+
+  const form = document.getElementById("docForm");
+  const titleInput = document.getElementById("titulo");
+  const folderSelect = document.getElementById("pastaId");
+  const descriptionInput = document.getElementById("descricao");
+  const typeSelect = document.getElementById("tipoConteudo");
+  const textInput = document.getElementById("texto");
+  const externalUrlInput = document.getElementById("externalUrl");
+  const fileInput = document.getElementById("arquivo");
+  const textField = document.getElementById("textField");
+  const urlField = document.getElementById("urlField");
+  const fileField = document.getElementById("fileField");
+  const fileHelp = document.getElementById("fileHelp");
+  const submitBtn = document.getElementById("submitBtn");
+  const message = document.getElementById("message");
+  const pageTitle = document.getElementById("pageTitle");
+  const newFolderBtn = document.getElementById("newFolderBtn");
+
+  async function readApiResponse(response) {
+    const contentType = response.headers.get("content-type") || "";
+
+    if (contentType.includes("application/json")) {
+      try {
+        return await response.json();
+      } catch {
+        return {
+          message: `A API respondeu ${response.status}, mas o JSON retornado está inválido.`
+        };
+      }
+    }
+
+    const text = await response.text();
+
+    return {
+      message: text || `Erro HTTP ${response.status}`,
+      rawText: text,
+      nonJson: true
+    };
+  }
+
+  function showMessage(text, type = "success") {
+    message.innerHTML = `<div class="notice ${type}">${Softcom.escape(text)}</div>`;
+  }
+
+  function showRequestError(response, data, fallback) {
+    if (response.status === 401) {
+      Softcom.logout();
+      return true;
+    }
+
+    if (response.status === 403 && data?.nonJson) {
+      showMessage(
+        "O servidor respondeu 403 Forbidden antes de retornar JSON. " +
+        "Como o backend Softcom devolve erros de permissão em JSON, esse bloqueio provavelmente está ocorrendo antes da rota Express (por exemplo, proteção/firewall da Vercel).",
+        "error"
+      );
+      return true;
+    }
+
+    if (!response.ok) {
+      showMessage(data?.message || fallback || `Erro HTTP ${response.status}`, "error");
+      return true;
+    }
+
+    return false;
+  }
+
+  function syncType() {
+    const selectedType = typeSelect.value;
+
+    const isText = selectedType === "TEXTO";
+    const isLink = selectedType === "LINK";
+    const isVideo = selectedType === "VIDEO";
+
+    textField.classList.toggle("hidden", !isText);
+    urlField.classList.toggle("hidden", !(isVideo || isLink));
+    fileField.classList.toggle("hidden", isText || isLink);
+
+    textInput.required = isText;
+    externalUrlInput.required = isLink;
+
+    fileInput.required =
+      !editingId &&
+      ["PDF", "HTML", "IMAGEM", "AUDIO", "ARQUIVO"].includes(selectedType);
+
+    if (selectedType === "PDF") {
+      fileInput.accept = "application/pdf,.pdf";
+    } else if (selectedType === "HTML") {
+      fileInput.accept = "text/html,.html,.htm";
+    } else if (selectedType === "IMAGEM") {
+      fileInput.accept = "image/*";
+    } else if (selectedType === "AUDIO") {
+      fileInput.accept = "audio/*";
+    } else if (selectedType === "VIDEO") {
+      fileInput.accept = "video/*";
+    } else {
+      fileInput.removeAttribute("accept");
+    }
+  }
+
+  async function checkSession() {
+    try {
+      const response = await fetch("/api/debug-auth", {
+        headers: Softcom.headers()
+      });
+
+      const data = await readApiResponse(response);
+
+      if (response.status === 401) {
+        Softcom.logout();
+        return false;
+      }
+
+      if (response.status === 403 && data?.nonJson) {
+        showMessage(
+          "A própria verificação de sessão recebeu 403 Forbidden antes do Express. Verifique Deployment Protection, Firewall ou regras do projeto na Vercel.",
+          "error"
+        );
+        return false;
+      }
+
+      if (!response.ok) {
+        showMessage(data?.message || "Não foi possível verificar a sessão.", "error");
+        return false;
+      }
+
+      if (!data.isAdmin) {
+        showMessage(
+          `O usuário atual não está como administrador no banco. Token: ${data.token?.role || "?"}; banco: ${data.database?.role || "?"}.`,
+          "error"
+        );
+        return false;
+      }
+
+      return true;
+    } catch (error) {
+      showMessage(`Falha ao verificar a sessão: ${error.message}`, "error");
+      return false;
+    }
+  }
+
+  async function loadFolders(selected = "") {
+    const response = await fetch("/api/documentos/pastas", {
+      headers: Softcom.headers()
+    });
+
+    const data = await readApiResponse(response);
+
+    if (showRequestError(response, data, "Erro ao carregar pastas.")) {
+      if (!response.ok) throw new Error(data?.message || "Erro ao carregar pastas.");
+      return;
+    }
+
+    const folders = Array.isArray(data) ? data : [];
+
+    folderSelect.innerHTML =
+      '<option value="">Sem pasta</option>' +
+      folders.map(folder =>
+        `<option value="${folder._id}">${Softcom.escape(folder.nome)}</option>`
+      ).join("");
+
+    if (selected) folderSelect.value = String(selected);
+  }
+
+  async function createFolderQuick() {
+    const nome = prompt("Nome da nova pasta:");
+    if (!nome?.trim()) return;
+
+    try {
+      const response = await fetch("/api/documentos/pastas", {
+        method: "POST",
+        headers: Softcom.headers(true),
+        body: JSON.stringify({ nome: nome.trim() })
+      });
+
+      const data = await readApiResponse(response);
+
+      if (showRequestError(response, data, "Erro ao criar pasta.")) return;
+
+      await loadFolders(data.folder?._id || "");
+      showMessage("Pasta criada com sucesso.");
+    } catch (error) {
+      showMessage(error.message, "error");
+    }
+  }
+
+  async function loadEdit() {
+    if (!editingId) return;
+
+    const response = await fetch(`/api/documentos/item/${encodeURIComponent(editingId)}`, {
+      headers: Softcom.headers()
+    });
+
+    const data = await readApiResponse(response);
+
+    if (showRequestError(response, data, "Erro ao carregar item.")) {
+      if (!response.ok) throw new Error(data?.message || "Erro ao carregar item.");
+      return;
+    }
+
+    titleInput.value = data.titulo || "";
+    descriptionInput.value = data.descricao || "";
+    typeSelect.value = data.tipoConteudo || "TEXTO";
+    textInput.value = data.texto || "";
+    externalUrlInput.value = data.externalUrl || "";
+
+    await loadFolders(data.pastaId || "");
+
+    pageTitle.textContent = "Editar Item";
+    submitBtn.innerHTML = '<i class="fas fa-floppy-disk"></i> Atualizar Item';
+
+    if (data.nomeArquivo) {
+      fileHelp.textContent =
+        `Arquivo atual: ${data.nomeArquivo}. Selecione outro somente se quiser substituir.`;
+    }
+
+    syncType();
+  }
+
+  form.addEventListener("submit", async event => {
+    event.preventDefault();
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Salvando...';
+    message.innerHTML = "";
+
+    try {
+      const sessionOk = await checkSession();
+      if (!sessionOk) return;
+
+      const selectedType = typeSelect.value;
+      const externalUrl = externalUrlInput.value.trim();
+
+      if (selectedType === "VIDEO" && !externalUrl && !fileInput.files[0] && !editingId) {
+        throw new Error("Para vídeo, informe uma URL ou selecione um arquivo de vídeo pequeno.");
+      }
+
+      const formData = new FormData();
+      formData.append("titulo", titleInput.value.trim());
+      formData.append("descricao", descriptionInput.value.trim());
+      formData.append("pastaId", folderSelect.value);
+      formData.append("tipoConteudo", selectedType);
+      formData.append("texto", textInput.value);
+      formData.append("externalUrl", externalUrl);
+
+      if (fileInput.files[0]) {
+        formData.append("arquivo", fileInput.files[0]);
+      }
+
+      const endpoint = editingId
+        ? `/api/documentos/${encodeURIComponent(editingId)}`
+        : "/api/documentos";
+
+      const response = await fetch(endpoint, {
+        method: editingId ? "PUT" : "POST",
+        headers: Softcom.headers(),
+        body: formData
+      });
+
+      console.log("Salvar documento:", {
+        status: response.status,
+        contentType: response.headers.get("content-type")
+      });
+
+      const data = await readApiResponse(response);
+
+      if (showRequestError(response, data, "Erro ao salvar documento.")) return;
+
+      showMessage(data.message || "Documento salvo com sucesso.");
+
+      setTimeout(() => {
+        window.location.href = "/documentacao.html";
+      }, 700);
+    } catch (error) {
+      console.error("ERRO AO SALVAR DOCUMENTO:", error);
+      showMessage(error.message || "Erro inesperado ao salvar.", "error");
+    } finally {
+      submitBtn.disabled = false;
+      submitBtn.innerHTML = editingId
+        ? '<i class="fas fa-floppy-disk"></i> Atualizar Item'
+        : '<i class="fas fa-floppy-disk"></i> Salvar Item';
+    }
+  });
+
+  typeSelect.addEventListener("change", syncType);
+  newFolderBtn.addEventListener("click", createFolderQuick);
+
+  (async function init() {
+    syncType();
+
+    const sessionOk = await checkSession();
+    if (!sessionOk) return;
+
+    try {
+      if (editingId) {
+        await loadEdit();
+      } else {
+        await loadFolders();
+      }
+    } catch (error) {
+      showMessage(error.message, "error");
+    }
+  })();
+})();
+</script>
+</body>
+</html>
